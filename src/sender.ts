@@ -291,7 +291,7 @@ export class SenderView {
     try {
       const canvas = this.container.querySelector<HTMLCanvasElement>('#qr-canvas')!
       await QRCode.toCanvas(canvas, JSON.stringify(this.chunks[index]), {
-        errorCorrectionLevel: 'M',
+        errorCorrectionLevel: 'L',
         margin: 2,
         width: 320,
         color: { dark: '#000000', light: '#ffffff' },

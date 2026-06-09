@@ -1,6 +1,6 @@
 import type { ChunkPayload } from './protocol'
 
-export const CHUNK_SIZE = 700 // raw bytes per chunk
+export const CHUNK_SIZE = 400 // raw bytes per chunk
 
 export function splitBuffer(
   buffer: ArrayBuffer,
