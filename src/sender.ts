@@ -368,6 +368,11 @@ export class SenderView {
     this.ackedChunks = ackedSet
     this.rebuildPending()
 
+    // Immediately show a non-acked chunk so the just-acked QR disappears right away
+    if (this.pendingIndices.length > 0 && !this.done) {
+      void this.renderChunk(this.pendingIndices[this.pendingPos])
+    }
+
     const acked = ackedSet.size
     const total = payload.t
 
