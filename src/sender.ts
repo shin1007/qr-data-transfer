@@ -315,7 +315,7 @@ export class SenderView {
     this.ackScanCtx = canvas.getContext('2d', { willReadFrequently: true })!
     this.workerBusy = false
 
-    const switchBtn = this.container.querySelector('#switch-ack-camera-btn')
+    const switchBtn = this.container.querySelector<HTMLElement>('#switch-ack-camera-btn')
     if (switchBtn && !switchBtn.dataset.bound) {
       switchBtn.dataset.bound = '1'
       switchBtn.addEventListener('click', () => void this.switchAckCamera())
