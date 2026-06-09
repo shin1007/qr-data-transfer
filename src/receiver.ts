@@ -114,7 +114,7 @@ export class ReceiverView {
 
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: this.facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: { ideal: this.facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } },
       })
       this.video.srcObject = this.stream
       await this.video.play()
@@ -131,7 +131,7 @@ export class ReceiverView {
     if (this.workerBusy) return
 
     const now = performance.now()
-    if (now - this.lastScanTime < 100) return
+    if (now - this.lastScanTime < 50) return
     this.lastScanTime = now
 
     if (this.video.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) return

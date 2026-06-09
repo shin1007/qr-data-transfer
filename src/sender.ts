@@ -323,7 +323,7 @@ export class SenderView {
 
     try {
       this.ackStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: this.ackFacingMode, width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { facingMode: { ideal: this.ackFacingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
       })
       video.srcObject = this.ackStream
       await video.play()
@@ -342,7 +342,7 @@ export class SenderView {
     if (this.workerBusy) return
 
     const now = performance.now()
-    if (now - this.lastAckScanTime < 100) return
+    if (now - this.lastAckScanTime < 50) return
     this.lastAckScanTime = now
 
     if (!this.ackVideo || this.ackVideo.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) return
