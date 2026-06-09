@@ -25,6 +25,7 @@ export class ReceiverView {
   private ackRendering = false
   private etaSamples: Array<{t: number, n: number}> = []
   private isCompressed = false
+  private facingMode: 'user' | 'environment' = 'user'
 
   // Web Worker for jsQR decoding
   private scanWorker: Worker
@@ -64,7 +65,8 @@ export class ReceiverView {
             <p id="recv-eta" class="eta hidden"></p>
             <p id="recv-file-info" class="file-info hidden"></p>
           </div>
-          <div style="display:flex;justify-content:center;margin-top:1rem">
+          <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1rem">
+            <button class="btn-ghost" id="switch-camera-btn">⇄ カメラ切替</button>
             <button class="btn-ghost" id="stop-btn">✕ 停止</button>
           </div>
         </div>
@@ -96,6 +98,7 @@ export class ReceiverView {
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!
 
     this.container.querySelector('#stop-btn')?.addEventListener('click', () => this.stop())
+    this.container.querySelector('#switch-camera-btn')?.addEventListener('click', () => void this.switchCamera())
     this.container.querySelector('#download-btn')?.addEventListener('click', () => this.download())
     this.container.querySelector('#scan-again-btn')?.addEventListener('click', () => this.reset())
     this.container.querySelector('#retry-btn')?.addEventListener('click', () => void this.startCamera())
@@ -111,7 +114,7 @@ export class ReceiverView {
 
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: this.facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
       })
       this.video.srcObject = this.stream
       await this.video.play()
@@ -289,6 +292,13 @@ export class ReceiverView {
     this.container.querySelector('#recv-eta')!.classList.add('hidden')
     this.container.querySelector('#recv-file-info')!.classList.add('hidden')
     void this.startCamera()
+  }
+
+  private async switchCamera() {
+    this.facingMode = this.facingMode === 'user' ? 'environment' : 'user'
+    cancelAnimationFrame(this.animFrame)
+    this.stopStream()
+    await this.startCamera()
   }
 
   private stop() {
