@@ -239,6 +239,15 @@ export class SenderView {
     const transferBuffer = this.transferBuffer
     const compressedSize = this.compressedSize
 
+    // Enforce minimum chunk size so the ACK bitmask always fits within QR v40 ECL-L (≤16000 chunks)
+    const minChunkForQr = Math.ceil(transferBuffer.byteLength / 16000)
+    if (minChunkForQr > this.chunkSize) {
+      this.chunkSize = minChunkForQr
+      this.updateChunkSizeDisplay()
+      const slider = this.container.querySelector<HTMLInputElement>('#chunk-size-slider')
+      if (slider) slider.value = String(this.chunkSize)
+    }
+
     const id = crypto.randomUUID()
     this.chunks = splitBuffer(
       transferBuffer,
@@ -278,7 +287,8 @@ export class SenderView {
 
   private async applyChunkSizeChange(newSize: number) {
     if (!this.transferBuffer || !this.transferFile) return
-    this.chunkSize = newSize
+    const minChunkForQr = Math.ceil(this.transferBuffer.byteLength / 16000)
+    this.chunkSize = Math.max(newSize, minChunkForQr)
     this.chunkSizeLastChange = Date.now()
     this.stopAnimation()
     this.done = false
@@ -484,7 +494,21 @@ export class SenderView {
       this.ackScanLoop()
     } catch {
       this.container.querySelector('#ack-camera-status')!.textContent =
-        'カメラ起動失敗 — ACK確認なしで送信を継続'
+        'カメラ起動失敗 — 受信完了後に手動で終了してください'
+      const ackSection = this.container.querySelector('#ack-scan-section')!
+      if (!ackSection.querySelector('#manual-done-btn')) {
+        const btn = document.createElement('button')
+        btn.id = 'manual-done-btn'
+        btn.className = 'btn-secondary'
+        btn.textContent = '手動で転送完了にする'
+        btn.style.marginTop = '0.5rem'
+        btn.addEventListener('click', () => {
+          this.container.querySelector('#ack-info')!.textContent =
+            `全 ${this.chunks.length} チャンクを送信しました（受信確認なし）`
+          this.showSendComplete()
+        })
+        ackSection.appendChild(btn)
+      }
     }
   }
 
@@ -523,9 +547,14 @@ export class SenderView {
     this.ackedChunks = ackedSet
     this.rebuildPending()
 
-    if (this.pendingIndices.length > 0 && !this.done) {
-      void this.renderChunk(this.pendingIndices[this.pendingPos])
+    // Completion check before adaptive adjustments: applyChunkSizeChange resets the
+    // transfer mid-function and would prevent showSendComplete from ever firing.
+    if (this.pendingIndices.length === 0) {
+      this.showSendComplete()
+      return
     }
+
+    void this.renderChunk(this.pendingIndices[this.pendingPos])
 
     const acked = ackedSet.size
     const total = payload.t
@@ -568,8 +597,9 @@ export class SenderView {
       }
     }
 
-    // Adaptive chunk size (#1) — based on scan success ratio (ack rate / fps)
-    if (this.autoChunkSize && this.ackEtaSamples.length >= 3) {
+    // Adaptive chunk size — only during first 10% of transfer to avoid resetting received progress
+    if (this.autoChunkSize && this.ackEtaSamples.length >= 3
+        && this.ackedChunks.size < Math.ceil(this.chunks.length * 0.1)) {
       const now = Date.now()
       const oldest = this.ackEtaSamples[0]
       const latest = this.ackEtaSamples[this.ackEtaSamples.length - 1]
@@ -579,18 +609,12 @@ export class SenderView {
         const ratio = ackRate / Math.max(1, this.fps)
         let newSize: number | null = null
         if (ratio > 0.85 && this.chunkSize < 1000) {
-          // Receiver keeps up easily → try bigger chunks
           newSize = Math.min(1000, this.chunkSize + 100)
         } else if (ratio < 0.40 && this.chunkSize > 200) {
-          // Receiver struggling → simplify QR
           newSize = Math.max(200, this.chunkSize - 100)
         }
         if (newSize !== null) void this.applyChunkSizeChange(newSize)
       }
-    }
-
-    if (this.pendingIndices.length === 0) {
-      this.showSendComplete()
     }
   }
 

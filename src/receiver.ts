@@ -228,13 +228,14 @@ export class ReceiverView {
     }
     try {
       await QRCode.toCanvas(ackCanvas, encodeAck(payload), {
-        errorCorrectionLevel: 'M',
+        errorCorrectionLevel: 'L',
         margin: 1,
         width: 160,
         color: { dark: '#000000', light: '#ffffff' },
       })
     } catch {
-      // ignore render failures
+      const label = this.container.querySelector<HTMLElement>('.section-label')
+      if (label) label.textContent = 'ACK QR生成失敗（チャンク数過多）— 手動で完了を確認してください'
     } finally {
       this.ackRendering = false
     }
