@@ -1,12 +1,14 @@
 import QRCode from 'qrcode'
-import { splitBuffer } from './chunker'
-import { isAckPayload, parseAckBitmask } from './protocol'
+import { splitBuffer, DEFAULT_CHUNK_SIZE } from './chunker'
+import { decodeAck, encodeChunk, parseAckBitmask } from './protocol'
 import type { ChunkPayload } from './protocol'
 import { formatBytes, computeEta, formatTransferTime } from './utils'
 import { shouldCompress, compressBuffer } from './compressor'
 
 export class SenderView {
   private container: HTMLElement
+
+  // Transfer state
   private chunks: ChunkPayload[] = []
   private pendingIndices: number[] = []
   private pendingPos = 0
@@ -14,6 +16,16 @@ export class SenderView {
   private fps = 4
   private rendering = false
   private done = false
+
+  // File storage for re-splitting
+  private transferBuffer: ArrayBuffer | null = null
+  private transferFile: File | null = null
+  private compressedSize: number | null = null
+
+  // Chunk size control
+  private chunkSize = DEFAULT_CHUNK_SIZE
+  private autoChunkSize = true
+  private chunkSizeLastChange = 0
 
   // ACK camera state
   private ackedChunks = new Set<number>()
@@ -33,6 +45,11 @@ export class SenderView {
   // Adaptive fps
   private autoFps = true
   private ackFacingMode: 'user' | 'environment' = 'user'
+
+  // Pre-render double-buffer (#2)
+  private nextBitmap: ImageBitmap | null = null
+  private nextBitmapForIndex = -1
+  private preparingBitmap = false
 
   constructor(container: HTMLElement) {
     this.container = container
@@ -92,10 +109,17 @@ export class SenderView {
           </div>
           <div class="speed-control">
             <div class="speed-header">
-              <span class="speed-label">速度: <strong id="fps-display">4</strong> fps</span>
+              <span class="speed-label">速度: <strong id="fps-display">${this.fps}</strong> fps</span>
               <button class="btn-auto active" id="auto-fps-btn">自動</button>
             </div>
-            <input type="range" id="fps-slider" min="1" max="10" value="4" disabled>
+            <input type="range" id="fps-slider" min="1" max="15" value="${this.fps}" disabled>
+          </div>
+          <div class="speed-control">
+            <div class="speed-header">
+              <span class="speed-label">チャンク: <strong id="chunk-size-display">${this.chunkSize}</strong> B</span>
+              <button class="btn-auto active" id="auto-chunk-btn">自動</button>
+            </div>
+            <input type="range" id="chunk-size-slider" min="100" max="1000" step="50" value="${this.chunkSize}" disabled>
           </div>
         </div>
       </div>
@@ -126,9 +150,9 @@ export class SenderView {
     this.container.querySelector('#play-pause-btn')?.addEventListener('click', () => this.togglePlay())
     this.container.querySelector('#reset-btn')?.addEventListener('click', () => this.reset())
 
-    const slider = this.container.querySelector<HTMLInputElement>('#fps-slider')!
-    slider.addEventListener('input', () => {
-      this.fps = parseInt(slider.value)
+    const fpsSlider = this.container.querySelector<HTMLInputElement>('#fps-slider')!
+    fpsSlider.addEventListener('input', () => {
+      this.fps = parseInt(fpsSlider.value)
       this.updateFpsDisplay()
       this.updateTransferEstimate()
       if (this.interval !== null) {
@@ -141,12 +165,29 @@ export class SenderView {
       this.autoFps = !this.autoFps
       const btn = this.container.querySelector('#auto-fps-btn')!
       btn.classList.toggle('active', this.autoFps)
-      slider.disabled = this.autoFps
+      fpsSlider.disabled = this.autoFps
       if (!this.autoFps) {
-        this.fps = parseInt(slider.value)
+        this.fps = parseInt(fpsSlider.value)
         this.updateFpsDisplay()
         this.updateTransferEstimate()
       }
+    })
+
+    const chunkSlider = this.container.querySelector<HTMLInputElement>('#chunk-size-slider')!
+    chunkSlider.addEventListener('change', () => {
+      const newSize = parseInt(chunkSlider.value)
+      if (newSize !== this.chunkSize) {
+        this.autoChunkSize = false
+        this.container.querySelector('#auto-chunk-btn')!.classList.remove('active')
+        void this.applyChunkSizeChange(newSize)
+      }
+    })
+
+    this.container.querySelector('#auto-chunk-btn')?.addEventListener('click', () => {
+      this.autoChunkSize = !this.autoChunkSize
+      const btn = this.container.querySelector('#auto-chunk-btn')!
+      btn.classList.toggle('active', this.autoChunkSize)
+      chunkSlider.disabled = this.autoChunkSize
     })
   }
 
@@ -169,7 +210,6 @@ export class SenderView {
     if (shouldCompress(file)) {
       hint.textContent = '圧縮中...'
       const compressed = await compressBuffer(originalBuffer)
-      // Only apply compression if it meaningfully reduces size (>5% gain)
       if (compressed.byteLength < originalBuffer.byteLength * 0.95) {
         transferBuffer = compressed
         compressedSize = compressed.byteLength
@@ -184,11 +224,27 @@ export class SenderView {
       }
     }
 
+    // Store for re-splitting
+    this.transferBuffer = transferBuffer
+    this.transferFile = file
+    this.compressedSize = compressedSize
+
+    this.startTransfer()
+  }
+
+  private startTransfer() {
+    if (!this.transferBuffer || !this.transferFile) return
+
+    const file = this.transferFile
+    const transferBuffer = this.transferBuffer
+    const compressedSize = this.compressedSize
+
     const id = crypto.randomUUID()
     this.chunks = splitBuffer(
       transferBuffer,
       file.name,
       id,
+      this.chunkSize,
       file.size,
       compressedSize !== null,
     )
@@ -200,6 +256,7 @@ export class SenderView {
     this.lastAckData = ''
     this.lastAckScanTime = 0
     this.ackEtaSamples = []
+    this.clearPreRender()
 
     this.container.querySelector('#drop-zone')!.classList.add('hidden')
     this.container.querySelector('.size-hint')!.classList.add('hidden')
@@ -209,13 +266,23 @@ export class SenderView {
       ? `${formatBytes(file.size)} → ${formatBytes(compressedSize)} (-${Math.round((1 - compressedSize / file.size) * 100)}%)`
       : formatBytes(file.size)
     this.container.querySelector('#file-info')!.textContent =
-      `${file.name}  •  ${sizeStr}  •  ${this.chunks.length} チャンク`
+      `${file.name}  •  ${sizeStr}  •  ${this.chunks.length} チャンク (${this.chunkSize} B)`
 
     this.container.querySelector('#ack-info')!.textContent = '受信確認待機中...'
     this.updateTransferEstimate()
+    this.updateChunkSizeDisplay()
 
-    void this.startAckCamera()
+    if (!this.ackStream) void this.startAckCamera()
     this.startAnimation()
+  }
+
+  private async applyChunkSizeChange(newSize: number) {
+    if (!this.transferBuffer || !this.transferFile) return
+    this.chunkSize = newSize
+    this.chunkSizeLastChange = Date.now()
+    this.stopAnimation()
+    this.done = false
+    this.startTransfer()
   }
 
   private startAnimation() {
@@ -255,6 +322,10 @@ export class SenderView {
     this.ackedChunks = new Set<number>()
     this.ackEtaSamples = []
     this.lastAckData = ''
+    this.transferBuffer = null
+    this.transferFile = null
+    this.compressedSize = null
+    this.clearPreRender()
     this.container.querySelector('#qr-area')!.classList.add('hidden')
     this.container.querySelector('#drop-zone')!.classList.remove('hidden')
     this.container.querySelector('.size-hint')!.classList.remove('hidden')
@@ -262,8 +333,102 @@ export class SenderView {
     fileInput.value = ''
   }
 
+  // ── Pre-render double-buffer (#2) ──────────────────────────────────────────
+
+  private clearPreRender() {
+    this.nextBitmap?.close()
+    this.nextBitmap = null
+    this.nextBitmapForIndex = -1
+    this.preparingBitmap = false
+  }
+
+  private scheduleNextBitmap() {
+    if (this.preparingBitmap || this.pendingIndices.length === 0) return
+    const nextPos = (this.pendingPos + 1) % this.pendingIndices.length
+    const nextIdx = this.pendingIndices[nextPos]
+    if (nextIdx === undefined || nextIdx === this.nextBitmapForIndex) return
+    void this.prepareNextBitmap(nextIdx)
+  }
+
+  private async prepareNextBitmap(index: number) {
+    if (this.preparingBitmap || index >= this.chunks.length) return
+    this.preparingBitmap = true
+    try {
+      const dataUrl = await QRCode.toDataURL(encodeChunk(this.chunks[index]), {
+        errorCorrectionLevel: 'L',
+        margin: 2,
+        width: 320,
+        color: { dark: '#000000', light: '#ffffff' },
+      }) as string
+      const img = new Image()
+      img.src = dataUrl
+      await img.decode()
+      const bitmap = await createImageBitmap(img)
+      this.nextBitmap?.close()
+      this.nextBitmap = bitmap
+      this.nextBitmapForIndex = index
+    } catch {
+      // Ignore render failures; fallback will handle it
+    } finally {
+      this.preparingBitmap = false
+    }
+  }
+
+  private renderChunk(index: number) {
+    if (this.done || this.chunks.length === 0) return
+
+    if (this.nextBitmapForIndex === index && this.nextBitmap) {
+      const canvas = this.container.querySelector<HTMLCanvasElement>('#qr-canvas')!
+      canvas.width = canvas.height = 320
+      canvas.getContext('2d')!.drawImage(this.nextBitmap, 0, 0)
+      this.nextBitmapForIndex = -1
+      this.nextBitmap = null
+      this.updateProgressUI(index)
+      this.scheduleNextBitmap()
+    } else if (!this.rendering) {
+      void this.renderChunkFallback(index)
+    }
+  }
+
+  private async renderChunkFallback(index: number) {
+    if (this.rendering || this.chunks.length === 0 || this.done) return
+    this.rendering = true
+    try {
+      const canvas = this.container.querySelector<HTMLCanvasElement>('#qr-canvas')!
+      await QRCode.toCanvas(canvas, encodeChunk(this.chunks[index]), {
+        errorCorrectionLevel: 'L',
+        margin: 2,
+        width: 320,
+        color: { dark: '#000000', light: '#ffffff' },
+      })
+      if (this.done) return
+      this.updateProgressUI(index)
+      this.scheduleNextBitmap()
+    } finally {
+      this.rendering = false
+    }
+  }
+
+  private updateProgressUI(index: number) {
+    if (this.done) return
+    const total = this.chunks.length
+    const acked = this.ackedChunks.size
+    this.container.querySelector('#chunk-counter')!.textContent = `表示中: ${index + 1} / ${total}`
+    const fill = this.container.querySelector<HTMLElement>('#progress-fill')!
+    fill.style.width = `${(acked / total) * 100}%`
+  }
+
+  // ── UI helpers ─────────────────────────────────────────────────────────────
+
   private updateFpsDisplay() {
     this.container.querySelector('#fps-display')!.textContent = String(this.fps)
+  }
+
+  private updateChunkSizeDisplay() {
+    const el = this.container.querySelector('#chunk-size-display')
+    if (el) el.textContent = String(this.chunkSize)
+    const slider = this.container.querySelector<HTMLInputElement>('#chunk-size-slider')
+    if (slider && !this.autoChunkSize) slider.value = String(this.chunkSize)
   }
 
   private updateTransferEstimate() {
@@ -283,29 +448,16 @@ export class SenderView {
       if (!this.ackedChunks.has(i)) this.pendingIndices.push(i)
     }
     if (this.pendingPos >= this.pendingIndices.length) this.pendingPos = 0
-  }
 
-  private async renderChunk(index: number) {
-    if (this.rendering || this.chunks.length === 0 || this.done) return
-    this.rendering = true
-    try {
-      const canvas = this.container.querySelector<HTMLCanvasElement>('#qr-canvas')!
-      await QRCode.toCanvas(canvas, JSON.stringify(this.chunks[index]), {
-        errorCorrectionLevel: 'L',
-        margin: 2,
-        width: 320,
-        color: { dark: '#000000', light: '#ffffff' },
-      })
-      if (this.done) return
-      const total = this.chunks.length
-      const acked = this.ackedChunks.size
-      this.container.querySelector('#chunk-counter')!.textContent = `表示中: ${index + 1} / ${total}`
-      const fill = this.container.querySelector<HTMLElement>('#progress-fill')!
-      fill.style.width = `${(acked / total) * 100}%`
-    } finally {
-      this.rendering = false
+    // Invalidate pre-render if that chunk is now acked
+    if (this.nextBitmapForIndex !== -1 && !this.pendingIndices.includes(this.nextBitmapForIndex)) {
+      this.nextBitmap?.close()
+      this.nextBitmap = null
+      this.nextBitmapForIndex = -1
     }
   }
+
+  // ── ACK camera ─────────────────────────────────────────────────────────────
 
   private async startAckCamera() {
     const video = this.container.querySelector<HTMLVideoElement>('#ack-video')!
@@ -355,20 +507,22 @@ export class SenderView {
       0, 0, this.ackScanCanvas.width, this.ackScanCanvas.height,
     )
     this.workerBusy = true
-    this.scanWorker.postMessage({ data: imageData.data, width: imageData.width, height: imageData.height })
+    // (#3) Transfer buffer ownership to worker — zero-copy
+    this.scanWorker.postMessage(
+      { data: imageData.data, width: imageData.width, height: imageData.height },
+      [imageData.data.buffer],
+    )
   }
 
   private processAckData(raw: string) {
-    let payload: unknown
-    try { payload = JSON.parse(raw) } catch { return }
-    if (!isAckPayload(payload)) return
+    const payload = decodeAck(raw)
+    if (!payload) return
     if (payload.id !== this.chunks[0]?.id) return
 
     const ackedSet = parseAckBitmask(payload.rcv, payload.t)
     this.ackedChunks = ackedSet
     this.rebuildPending()
 
-    // Immediately show a non-acked chunk so the just-acked QR disappears right away
     if (this.pendingIndices.length > 0 && !this.done) {
       void this.renderChunk(this.pendingIndices[this.pendingPos])
     }
@@ -392,14 +546,14 @@ export class SenderView {
       etaEl.classList.add('hidden')
     }
 
-    // Adaptive fps: adjust based on receiver's ACK rate
+    // Adaptive fps (#4 — max raised to 15)
     if (this.autoFps && this.ackEtaSamples.length >= 2) {
       const oldest = this.ackEtaSamples[0]
       const latest = this.ackEtaSamples[this.ackEtaSamples.length - 1]
       const elapsed = (latest.t - oldest.t) / 1000
       if (elapsed >= 1.5 && latest.n > oldest.n) {
         const rate = (latest.n - oldest.n) / elapsed
-        const targetFps = Math.max(2, Math.min(10, Math.ceil(rate * 1.3)))
+        const targetFps = Math.max(2, Math.min(15, Math.ceil(rate * 1.3)))
         if (targetFps !== this.fps) {
           this.fps = targetFps
           this.updateFpsDisplay()
@@ -411,6 +565,27 @@ export class SenderView {
             this.startAnimation()
           }
         }
+      }
+    }
+
+    // Adaptive chunk size (#1) — based on scan success ratio (ack rate / fps)
+    if (this.autoChunkSize && this.ackEtaSamples.length >= 3) {
+      const now = Date.now()
+      const oldest = this.ackEtaSamples[0]
+      const latest = this.ackEtaSamples[this.ackEtaSamples.length - 1]
+      const elapsed = (latest.t - oldest.t) / 1000
+      if (elapsed >= 5 && now - this.chunkSizeLastChange > 15000) {
+        const ackRate = (latest.n - oldest.n) / elapsed
+        const ratio = ackRate / Math.max(1, this.fps)
+        let newSize: number | null = null
+        if (ratio > 0.85 && this.chunkSize < 1000) {
+          // Receiver keeps up easily → try bigger chunks
+          newSize = Math.min(1000, this.chunkSize + 100)
+        } else if (ratio < 0.40 && this.chunkSize > 200) {
+          // Receiver struggling → simplify QR
+          newSize = Math.max(200, this.chunkSize - 100)
+        }
+        if (newSize !== null) void this.applyChunkSizeChange(newSize)
       }
     }
 
@@ -453,6 +628,7 @@ export class SenderView {
   destroy() {
     this.stopAnimation()
     this.stopAckCamera()
+    this.clearPreRender()
     this.scanWorker.terminate()
   }
 }

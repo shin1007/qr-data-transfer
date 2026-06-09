@@ -1,6 +1,6 @@
 import QRCode from 'qrcode'
 import { reassembleChunks } from './chunker'
-import { isChunkPayload, buildAckBitmask } from './protocol'
+import { decodeChunk, encodeAck, buildAckBitmask } from './protocol'
 import type { ChunkPayload, AckPayload } from './protocol'
 import { formatBytes, computeEta } from './utils'
 import { decompressBuffer } from './compressor'
@@ -142,18 +142,16 @@ export class ReceiverView {
 
     const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height)
     this.workerBusy = true
-    this.scanWorker.postMessage({ data: imageData.data, width: imageData.width, height: imageData.height })
+    // (#3) Transfer buffer ownership to worker — zero-copy
+    this.scanWorker.postMessage(
+      { data: imageData.data, width: imageData.width, height: imageData.height },
+      [imageData.data.buffer],
+    )
   }
 
   private processQRData(raw: string) {
-    let payload: unknown
-    try {
-      payload = JSON.parse(raw)
-    } catch {
-      return
-    }
-
-    if (!isChunkPayload(payload)) return
+    const payload = decodeChunk(raw)
+    if (!payload) return
 
     if (this.transferId !== payload.id) {
       if (this.transferId !== null && this.receivedChunks.size > 0) {
@@ -229,7 +227,7 @@ export class ReceiverView {
       rcv: buildAckBitmask(this.receivedChunks.keys(), this.totalChunks),
     }
     try {
-      await QRCode.toCanvas(ackCanvas, JSON.stringify(payload), {
+      await QRCode.toCanvas(ackCanvas, encodeAck(payload), {
         errorCorrectionLevel: 'M',
         margin: 1,
         width: 160,

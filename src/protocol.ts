@@ -59,3 +59,80 @@ export function parseAckBitmask(b64: string, total: number): Set<number> {
   }
   return received
 }
+
+// ── Compact wire format ──────────────────────────────────────────────────────
+// UUID (16 bytes) → 22-char base64url (no padding) to save 14 chars vs UUID string
+function uuidToCompactId(uuid: string): string {
+  const hex = uuid.replace(/-/g, '')
+  let binary = ''
+  for (let i = 0; i < 16; i++) binary += String.fromCharCode(parseInt(hex.slice(i * 2, i * 2 + 2), 16))
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+}
+
+function compactIdToUuid(compact: string): string {
+  const padLen = (4 - (compact.length % 4)) % 4
+  const b64 = (compact + '='.repeat(padLen)).replace(/-/g, '+').replace(/_/g, '/')
+  const binary = atob(b64)
+  const hex = Array.from(binary).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`
+}
+
+// Non-first chunk : B|{cid22}|{i}|{t}|{data_b64}
+// First chunk (i=0): B|{cid22}|0|{t}|{origsize}|{flags}|{name_uri}|{data_b64}
+export function encodeChunk(p: ChunkPayload): string {
+  const cid = uuidToCompactId(p.id)
+  if (p.i === 0 && p.n !== undefined) {
+    const flags = p.z === 1 ? 1 : 0
+    return `B|${cid}|0|${p.t}|${p.s ?? 0}|${flags}|${encodeURIComponent(p.n)}|${p.d}`
+  }
+  return `B|${cid}|${p.i}|${p.t}|${p.d}`
+}
+
+export function decodeChunk(raw: string): ChunkPayload | null {
+  if (raw.startsWith('B|')) {
+    const parts = raw.split('|')
+    try {
+      const id = compactIdToUuid(parts[1])
+      const i = parseInt(parts[2], 10)
+      const t = parseInt(parts[3], 10)
+      if (isNaN(i) || isNaN(t)) return null
+      if (i === 0 && parts.length >= 8) {
+        const s = parseInt(parts[4], 10)
+        const flags = parseInt(parts[5], 10)
+        const n = decodeURIComponent(parts[6])
+        const d = parts[7]
+        const chunk: ChunkPayload = { v: 1, id, i, t, d, n, s: isNaN(s) ? 0 : s }
+        if (flags & 1) chunk.z = 1
+        return chunk
+      }
+      if (parts.length < 5) return null
+      return { v: 1, id, i, t, d: parts[4] }
+    } catch { return null }
+  }
+  try {
+    const obj = JSON.parse(raw)
+    return isChunkPayload(obj) ? obj : null
+  } catch { return null }
+}
+
+// ACK: A|{cid22}|{t}|{bitmask_b64}
+export function encodeAck(p: AckPayload): string {
+  return `A|${uuidToCompactId(p.id)}|${p.t}|${p.rcv}`
+}
+
+export function decodeAck(raw: string): AckPayload | null {
+  if (raw.startsWith('A|')) {
+    const parts = raw.split('|')
+    if (parts.length < 4) return null
+    try {
+      const id = compactIdToUuid(parts[1])
+      const t = parseInt(parts[2], 10)
+      if (isNaN(t)) return null
+      return { v: 1, type: 'ack', id, t, rcv: parts[3] }
+    } catch { return null }
+  }
+  try {
+    const obj = JSON.parse(raw)
+    return isAckPayload(obj) ? obj : null
+  } catch { return null }
+}

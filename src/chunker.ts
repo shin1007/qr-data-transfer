@@ -1,20 +1,21 @@
 import type { ChunkPayload } from './protocol'
 
-export const CHUNK_SIZE = 400 // raw bytes per chunk
+export const DEFAULT_CHUNK_SIZE = 400
 
 export function splitBuffer(
   buffer: ArrayBuffer,
   filename: string,
   transferId: string,
+  chunkSize = DEFAULT_CHUNK_SIZE,
   originalSize?: number,
   compressed?: boolean,
 ): ChunkPayload[] {
   const bytes = new Uint8Array(buffer)
-  const total = Math.max(1, Math.ceil(bytes.length / CHUNK_SIZE))
+  const total = Math.max(1, Math.ceil(bytes.length / chunkSize))
   const chunks: ChunkPayload[] = []
 
   for (let i = 0; i < total; i++) {
-    const slice = bytes.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
+    const slice = bytes.slice(i * chunkSize, (i + 1) * chunkSize)
     const chunk: ChunkPayload = {
       v: 1,
       id: transferId,
