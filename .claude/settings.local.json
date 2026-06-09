@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx playwright *)",
+      "Bash(python3 -c ' *)",
+      "Bash(node -e ' *)",
+      "Bash(which chromium *)",
+      "Read(//usr/**)",
+      "PowerShell(Get-Process -Name \"chrome\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Test-NetConnection -ComputerName localhost -Port 9225 -WarningAction SilentlyContinue)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\shin1\\\\local repos\\\\qr-data-transfer\\\\src\\\\counter.ts\" -Force)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\shin1\\\\local repos\\\\qr-data-transfer\\\\src\\\\assets\\\\typescript.svg\" -Force)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\shin1\\\\local repos\\\\qr-data-transfer\\\\src\\\\assets\\\\vite.svg\" -Force)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\shin1\\\\local repos\\\\qr-data-transfer\\\\src\\\\assets\\\\hero.png\" -Force)",
+      "Bash(Write-Output \"Done\")"
+    ]
+  }
+}
