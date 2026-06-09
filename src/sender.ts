@@ -32,6 +32,7 @@ export class SenderView {
 
   // Adaptive fps
   private autoFps = true
+  private ackFacingMode: 'user' | 'environment' = 'user'
 
   constructor(container: HTMLElement) {
     this.container = container
@@ -79,7 +80,10 @@ export class SenderView {
               <video id="ack-video" autoplay playsinline muted></video>
               <canvas id="ack-scan-canvas" hidden></canvas>
             </div>
-            <p id="ack-camera-status" class="ack-status">カメラ起動中...</p>
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem">
+              <p id="ack-camera-status" class="ack-status" style="flex:1;margin:0">カメラ起動中...</p>
+              <button class="btn-ghost" id="switch-ack-camera-btn" style="padding:0.25rem 0.6rem;font-size:0.8rem">⇄</button>
+            </div>
           </div>
 
           <div class="controls">
@@ -311,9 +315,15 @@ export class SenderView {
     this.ackScanCtx = canvas.getContext('2d', { willReadFrequently: true })!
     this.workerBusy = false
 
+    const switchBtn = this.container.querySelector('#switch-ack-camera-btn')
+    if (switchBtn && !switchBtn.dataset.bound) {
+      switchBtn.dataset.bound = '1'
+      switchBtn.addEventListener('click', () => void this.switchAckCamera())
+    }
+
     try {
       this.ackStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { facingMode: this.ackFacingMode, width: { ideal: 640 }, height: { ideal: 480 } },
       })
       video.srcObject = this.ackStream
       await video.play()
@@ -419,6 +429,13 @@ export class SenderView {
       `全 ${this.chunks.length} チャンクの受信を確認しました`
     this.container.querySelector('#eta-display')!.classList.add('hidden')
     this.container.querySelector('#ack-scan-section')!.classList.add('hidden')
+  }
+
+  private async switchAckCamera() {
+    this.ackFacingMode = this.ackFacingMode === 'user' ? 'environment' : 'user'
+    cancelAnimationFrame(this.ackAnimFrame)
+    this.stopAckCamera()
+    await this.startAckCamera()
   }
 
   private stopAckCamera() {
