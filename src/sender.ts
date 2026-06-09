@@ -1,5 +1,5 @@
 import QRCode from 'qrcode'
-import { splitBuffer, DEFAULT_CHUNK_SIZE } from './chunker'
+import { splitBuffer } from './chunker'
 import { decodeAck, encodeChunk, parseAckBitmask } from './protocol'
 import type { ChunkPayload } from './protocol'
 import { formatBytes, computeEta, formatTransferTime } from './utils'
@@ -13,7 +13,7 @@ export class SenderView {
   private pendingIndices: number[] = []
   private pendingPos = 0
   private interval: number | null = null
-  private fps = 4
+  private fps = 1
   private rendering = false
   private done = false
 
@@ -23,7 +23,7 @@ export class SenderView {
   private compressedSize: number | null = null
 
   // Chunk size control
-  private chunkSize = DEFAULT_CHUNK_SIZE
+  private chunkSize = 200
   private autoChunkSize = true
   private chunkSizeLastChange = 0
 
