@@ -79,6 +79,10 @@ export class SenderView {
         <p class="size-hint">推奨: 200KB以下（大きいほど時間がかかります）</p>
 
         <div class="qr-area hidden" id="qr-area">
+          <div class="ack-badge hidden" id="ack-badge">
+            <span class="ack-dot"></span>
+            <span id="ack-badge-text"></span>
+          </div>
           <div class="qr-wrapper">
             <canvas id="qr-canvas"></canvas>
           </div>
@@ -278,6 +282,8 @@ export class SenderView {
       `${file.name}  •  ${sizeStr}  •  ${this.chunks.length} チャンク (${this.chunkSize} B)`
 
     this.container.querySelector('#ack-info')!.textContent = '受信確認待機中...'
+    const badge = this.container.querySelector<HTMLElement>('#ack-badge')
+    if (badge) badge.classList.add('hidden')
     this.updateTransferEstimate()
     this.updateChunkSizeDisplay()
 
@@ -343,6 +349,10 @@ export class SenderView {
     fileInput.value = ''
   }
 
+  private qrDarkColor(): string {
+    return this.ackedChunks.size > 0 ? '#4f46e5' : '#000000'
+  }
+
   // ── Pre-render double-buffer (#2) ──────────────────────────────────────────
 
   private clearPreRender() {
@@ -368,7 +378,7 @@ export class SenderView {
         errorCorrectionLevel: 'L',
         margin: 2,
         width: 320,
-        color: { dark: '#000000', light: '#ffffff' },
+        color: { dark: this.qrDarkColor(), light: '#ffffff' },
       }) as string
       const img = new Image()
       img.src = dataUrl
@@ -409,7 +419,7 @@ export class SenderView {
         errorCorrectionLevel: 'L',
         margin: 2,
         width: 320,
-        color: { dark: '#000000', light: '#ffffff' },
+        color: { dark: this.qrDarkColor(), light: '#ffffff' },
       })
       if (this.done) return
       this.updateProgressUI(index)
@@ -544,7 +554,9 @@ export class SenderView {
     if (payload.id !== this.chunks[0]?.id) return
 
     const ackedSet = parseAckBitmask(payload.rcv, payload.t)
+    const wasEmpty = this.ackedChunks.size === 0
     this.ackedChunks = ackedSet
+    if (wasEmpty && ackedSet.size > 0) this.clearPreRender()
     this.rebuildPending()
 
     // Completion check before adaptive adjustments: applyChunkSizeChange resets the
@@ -563,6 +575,11 @@ export class SenderView {
       `確認済: ${acked} / ${total} チャンク`
     this.container.querySelector('#ack-camera-status')!.textContent =
       `ACK受信 — ${acked} / ${total} チャンク確認済`
+
+    const badge = this.container.querySelector<HTMLElement>('#ack-badge')!
+    badge.classList.remove('hidden')
+    this.container.querySelector('#ack-badge-text')!.textContent =
+      `ACK: ${acked} / ${total} チャンク確認済`
 
     const etaEl = this.container.querySelector('#eta-display')!
     if (acked > 0 && acked < total) {
@@ -631,6 +648,14 @@ export class SenderView {
     this.container.querySelector<HTMLElement>('#progress-fill')!.style.width = '100%'
     this.container.querySelector('#ack-info')!.textContent =
       `全 ${this.chunks.length} チャンクの受信を確認しました`
+
+    const badge = this.container.querySelector<HTMLElement>('#ack-badge')
+    if (badge) {
+      badge.classList.remove('hidden', 'ack-badge-active')
+      badge.classList.add('ack-badge-complete')
+      this.container.querySelector('#ack-badge-text')!.textContent =
+        `全 ${this.chunks.length} チャンク受信確認済`
+    }
     this.container.querySelector('#eta-display')!.classList.add('hidden')
     this.container.querySelector('#ack-scan-section')!.classList.add('hidden')
   }
