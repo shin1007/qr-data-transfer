@@ -48,6 +48,13 @@ export class ReceiverView {
   private render() {
     this.container.innerHTML = `
       <div class="view">
+        <div class="ack-qr-section hidden" id="ack-qr-section">
+          <div class="ack-qr-wrapper">
+            <canvas id="ack-qr-canvas"></canvas>
+          </div>
+          <p class="section-label">受信確認QR<br>送信側のカメラにかざしてください</p>
+        </div>
+
         <div id="camera-area">
           <div class="video-wrapper">
             <video id="preview-video" autoplay playsinline muted></video>
@@ -68,13 +75,6 @@ export class ReceiverView {
           <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1rem">
             <button class="btn-ghost" id="switch-camera-btn">⇄ カメラ切替</button>
             <button class="btn-ghost" id="stop-btn">✕ 停止</button>
-          </div>
-        </div>
-
-        <div class="ack-qr-section hidden" id="ack-qr-section">
-          <p class="section-label">受信確認QR — 送信側のカメラにかざしてください</p>
-          <div class="ack-qr-wrapper">
-            <canvas id="ack-qr-canvas"></canvas>
           </div>
         </div>
 
@@ -230,7 +230,7 @@ export class ReceiverView {
       await QRCode.toCanvas(ackCanvas, encodeAck(payload), {
         errorCorrectionLevel: 'L',
         margin: 1,
-        width: 160,
+        width: 110,
         color: { dark: '#000000', light: '#ffffff' },
       })
     } catch {
