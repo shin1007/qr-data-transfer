@@ -17,13 +17,12 @@
       <path d="M-28-34 6 0-28 34" opacity=".7"/>
       <path d="M-28-34 6 0-28 34" transform="translate(52 0)"/>
     </g>
-    <g id="qrt-mark">
-      <use href="#qrt-eye" x="80" y="80"/>
-      <use href="#qrt-eye" x="272" y="80"/>
-      <use href="#qrt-eye" x="80" y="272"/>
-      <g transform="translate(352 352) rotate(45)"><use href="#qrt-beams"/></g>
-    </g>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#qrt-bg)"/>
-  <use href="#qrt-mark"/>
+  <rect width="512" height="512" fill="url(#qrt-bg)"/>
+  <g transform="translate(256 256) scale(0.7) translate(-256 -256)">
+    <use href="#qrt-eye" x="80" y="80"/>
+    <use href="#qrt-eye" x="272" y="80"/>
+    <use href="#qrt-eye" x="80" y="272"/>
+    <g transform="translate(352 352) rotate(45)"><use href="#qrt-beams"/></g>
+  </g>
 </svg>
