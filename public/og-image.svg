@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="QR転送">
+  <defs>
+    <linearGradient id="og-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e293b"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="qrt-beam" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+    <g id="qrt-eye">
+      <rect x="16" y="16" width="128" height="128" rx="26" fill="none" stroke="#e2e8f0" stroke-width="32"/>
+      <rect x="48" y="48" width="64" height="64" rx="16" fill="#e2e8f0"/>
+    </g>
+    <g id="qrt-beams" stroke="url(#qrt-beam)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M-28-34 6 0-28 34" transform="translate(-52 0)" opacity=".4"/>
+      <path d="M-28-34 6 0-28 34" opacity=".7"/>
+      <path d="M-28-34 6 0-28 34" transform="translate(52 0)"/>
+    </g>
+    <g id="qrt-mark">
+      <use href="#qrt-eye" x="80" y="80"/>
+      <use href="#qrt-eye" x="272" y="80"/>
+      <use href="#qrt-eye" x="80" y="272"/>
+      <g transform="translate(352 352) rotate(45)"><use href="#qrt-beams"/></g>
+    </g>
+  </defs>
+  <rect width="1200" height="630" fill="url(#og-bg)"/>
+  <rect x="0" y="606" width="1200" height="24" fill="url(#qrt-beam)"/>
+  <g transform="translate(100 107) scale(0.814)">
+    <rect width="512" height="512" rx="112" fill="#0f172a" stroke="#334155" stroke-width="4"/>
+    <use href="#qrt-mark"/>
+  </g>
+  <g font-family="'Yu Gothic UI','Yu Gothic','Hiragino Sans','Noto Sans JP',Meiryo,sans-serif" fill="#e2e8f0">
+    <text x="600" y="270" font-size="112" font-weight="700">QR転送</text>
+    <text x="604" y="350" font-size="40" fill="#a5b4fc" font-weight="600">QR Data Transfer</text>
+    <text x="604" y="440" font-size="34" fill="#cbd5e1">QRコードアニメーションで</text>
+    <text x="604" y="492" font-size="34" fill="#cbd5e1">オフラインファイル転送</text>
+  </g>
+</svg>
